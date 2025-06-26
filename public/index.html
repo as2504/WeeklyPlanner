@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weekly Planner</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      /* Custom styles for drag-and-drop feedback */
+      li[draggable="true"] {
+        cursor: grab;
+      }
+      li[draggable="true"]:active {
+        cursor: grabbing;
+      }
+      .opacity-50 {
+        opacity: 0.5;
+      }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <!-- Icons for PWA - You'll need to create these images in a public/icons folder -->
+    <img src="/icons/icon-192x192.png" alt="App Icon" style="display: none;">
+    <img src="/icons/icon-512x512.png" alt="App Icon" style="display: none;">
+
+    <script type="module" src="/src/index.js"></script>
+    <!-- Service Worker registration script. This will be automatically handled by React's build process usually.
+         For a direct HTML setup, you'd include it here. In this React setup, it's in App.js useEffect.
+    -->
+    <script>
+      // Placeholder for service worker registration. The React component handles this.
+      // This is mostly for illustrative purposes for a standalone HTML file.
+      // In a real React project, the CRA or Vite setup usually takes care of this
+      // via workbox or similar, and it would be in a separate file/hook.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/service-worker.js')
+            .then(registration => {
+              console.log('SW registered: ', registration);
+            })
+            .catch(registrationError => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+</body>
+</html>
