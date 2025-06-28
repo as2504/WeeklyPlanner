@@ -23,31 +23,35 @@ const getMonthDay = (date) => {
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
 };
 
-const getStartOfWeek = (weekId) => {
-  const [year, weekNum] = weekId.split('-').map(Number);
-  const jan1 = new Date(year, 0, 1);
-  const days = (weekNum - 1) * 7;
-  const startOfWeek = new Date(jan1.getFullYear(), jan1.getMonth(), jan1.getDate() + days - (jan1.getDay() || 7) + 1);
-  // Adjust for the specific week's Monday
-  if (startOfWeek.getDay() !== 1) { // If it's not Monday (1 is Monday)
-    startOfWeek.setDate(startOfWeek.getDate() + (1 - startOfWeek.getDay() + 7) % 7);
-  }
-  return startOfWeek;
+// Function to get the start date (Monday) of a given ISO weekId (YYYY-WW)
+const getStartOfWeek = (year, weekNum) => {
+    const jan4 = new Date(year, 0, 4); // Jan 4th is always in ISO week 1
+    const dayOfWeekJan4 = (jan4.getDay() === 0) ? 7 : jan4.getDay(); // Adjust Sunday from 0 to 7
+    const mondayOfJan4Week = new Date(jan4);
+    mondayOfJan4Week.setDate(jan4.getDate() + 1 - dayOfWeekJan4); // Go back to Monday
+
+    const targetMonday = new Date(mondayOfJan4Week);
+    targetMonday.setDate(mondayOfJan4Week.getDate() + (weekNum - 1) * 7);
+    return targetMonday;
 };
 
 const getDayDate = (weekId, dayName) => {
-  const startOfWeek = getStartOfWeek(weekId);
+  const [year, weekNum] = weekId.split('-').map(Number);
+  const startOfWeek = getStartOfWeek(year, weekNum);
   const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const dayIndex = daysOfWeek.indexOf(dayName);
   const targetDate = new Date(startOfWeek);
-  targetDate.setDate(startOfWeek.getDate() + dayIndex - 1); // Adjust for Monday start (startOfWeek is Monday)
+  targetDate.setDate(startOfWeek.getDate() + dayIndex);
   return targetDate;
 };
 
 const getWeekInfo = (weekId) => {
   const [year, weekNum] = weekId.split('-').map(Number);
-  const date = getDayDate(weekId, 'Monday'); // Get a date within that week
-  return { year, weekNum, display: `Week ${weekNum}` };
+  return {
+    year,
+    weekNum,
+    display: `Week ${weekNum}`
+  };
 };
 
 const getRelativeWeekId = (currentWeekId, offset) => {
@@ -55,12 +59,12 @@ const getRelativeWeekId = (currentWeekId, offset) => {
   let newWeekNum = weekNum + offset;
   let newYear = year;
 
-  // Handle year transitions
-  if (newWeekNum > 52) { // Assuming max 52 weeks for simplicity, though some years have 53
+  // Simple adjustment for year transition, could be more robust for edge cases (53-week years)
+  if (newWeekNum > 52) {
     newWeekNum = 1;
     newYear++;
   } else if (newWeekNum < 1) {
-    newWeekNum = 52; // Go back to week 52 of previous year
+    newWeekNum = 52; // Fallback to 52 for simplicity, real impl might need 53
     newYear--;
   }
 
@@ -71,11 +75,11 @@ const generateUniqueId = () => `task-${Date.now()}-${Math.random().toString(36).
 
 // --- Constants ---
 const CATEGORIES = {
-  gym: { emoji: '💪', color: '#3674B5', name: 'Gym' }, // Primary
-  meal: { emoji: '🍽️', color: '#578FCA', name: 'Meal' }, // Secondary
-  study: { emoji: '📚', color: '#F5F0CD', name: 'Study' }, // 3rd Rank
-  hobby: { emoji: '🎨', color: '#FADA7A', name: 'Hobby' }, // 4th Rank
-  others: { emoji: '⚡', color: '#6b7280', name: 'Others' }, // Retained Gray
+  gym: { emoji: '💪', color: '#4ade80', name: 'Gym' }, // Green
+  meal: { emoji: '🍽️', color: '#fb923c', name: 'Meal' }, // Orange
+  study: { emoji: '📚', color: '#3b82f6', name: 'Study' }, // Blue
+  hobby: { emoji: '🎨', color: '#a855f7', name: 'Hobby' }, // Purple
+  others: { emoji: '⚡', color: '#6b7280', name: 'Others' }, // Gray
 };
 
 const DEFAULT_WEEKLY_TEMPLATE = {
@@ -138,9 +142,7 @@ function App() {
           if (typeof parsedData.lastCompletionDate === 'string' && parsedData.lastCompletionDate !== today.toISOString().split('T')[0]) {
             const lastDate = new Date(parsedData.lastCompletionDate);
             const daysDiff = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
-            // Check if no tasks were completed on the last completion date
-            // This logic is tricky for streak reset, better to rely on `useEffect` daily check.
-            // For initial load, if it's a new day and last completion was more than a day ago, reset.
+
             if (daysDiff > 1) {
                 parsedData.streak = 0;
             }
@@ -175,11 +177,11 @@ function App() {
     };
   });
 
-  // State for modal
+  // State for modals
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState(null); // 'add-task', 'message'
+  const [modalType, setModalType] = useState(null); // 'add-task', 'message', 'expand-task'
   const [modalMessage, setModalMessage] = useState('');
-  const [modalPayload, setModalPayload] = useState(null); // { dayName: 'Monday', task: {...} } for edit, etc.
+  const [modalPayload, setModalPayload] = useState(null); // { dayName: 'Monday', task: {...} } for edit, expand etc.
 
   // --- Local Storage Effect ---
   useEffect(() => {
@@ -229,17 +231,8 @@ function App() {
         const lastDate = new Date(updatedAppData.lastCompletionDate);
         const daysDiff = Math.floor((new Date() - lastDate) / (1000 * 60 * 60 * 24));
 
-        // Get completions for yesterday. Need to calculate yesterday's week and day.
-        const yesterdayIsoDate = new Date();
-        yesterdayIsoDate.setDate(yesterdayIsoDate.getDate() - 1);
-        const yesterdayId = getWeekId(yesterdayIsoDate);
-        const yesterdayName = getDayName(yesterdayIsoDate);
-
-        // Safely access yesterday's completions
-        const yesterdayCompletions = updatedAppData.weeks[yesterdayId]?.completions?.[yesterdayName] || [];
-
-        if (yesterdayCompletions.length === 0 && daysDiff > 0) { // If no tasks completed yesterday and it's a new day
-          updatedAppData.streak = 0;
+        if (daysDiff > 1) {
+            updatedAppData.streak = 0;
         }
       }
 
@@ -406,7 +399,7 @@ function App() {
           weeks: {
             ...prevAppData.weeks,
             [newWeekId]: {
-              template: JSON.parse(JSON.stringify(currentActiveWeekTemplate)), // Deep copy template
+              template: JSON.parse(JSON.stringify(currentActiveWeekTemplate)), // Deep copy
               completions: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), // Empty completions
             },
           },
@@ -457,6 +450,18 @@ function App() {
     setIsModalOpen(true);
   };
 
+  const openExpandTaskModal = (task) => {
+    if (isHistoricalView) {
+      setModalMessage("Cannot expand tasks in historical weeks.");
+      setModalType('message');
+      setIsModalOpen(true);
+      return;
+    }
+    setModalPayload({ task });
+    setModalType('expand-task');
+    setIsModalOpen(true);
+  };
+
   const closeModals = () => {
     setIsModalOpen(false);
     setModalType(null);
@@ -464,71 +469,107 @@ function App() {
     setModalPayload(null);
   };
 
-  // --- Render ---
+
   return (
-    <div className="min-h-screen bg-[#F5F0CD] font-inter text-gray-900 flex flex-col items-center p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-[#1E1E2F] font-inter text-[#E0E0E0] flex flex-col items-center p-4 sm:p-6 md:p-8">
       {/* Header */}
-      <header className="w-full max-w-xl bg-white rounded-xl shadow-lg p-4 mb-4 text-center">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-xl font-bold text-red-500">🔥 {appData.streak}</span>
-          <h1 className="text-xl font-semibold">
-            {currentWeekInfo.display}
-          </h1>
-          <span className="text-xl font-bold text-green-600">{currentWeekCompletionPercentage}%</span>
-        </div>
-        <div className="flex justify-between items-center text-gray-600 text-sm mb-4">
-          <button
-            onClick={() => navigateWeeks(-1)}
-            className="p-2 rounded-full bg-[#578FCA] text-white hover:bg-[#3674B5] transition-colors"
-            aria-label="Previous week"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <span>{currentWeekInfo.year}</span>
-          <button
-            onClick={() => navigateWeeks(1)}
-            className="p-2 rounded-full bg-[#578FCA] text-white hover:bg-[#3674B5] transition-colors"
-            aria-label="Next week"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
+      <header
+        className="w-full max-w-xl rounded-xl shadow-lg mb-4 text-center transition-all duration-300 ease-in-out"
+        style={{
+          backgroundColor: 'rgba(40, 40, 64, 0.6)', /* Translucent bg */
+          backdropFilter: 'blur(10px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(10px) saturate(180%)', /* Safari support */
+        }}
+      >
+        {/* Top Banner Bar - Streak and Progress */}
+        <div className="p-4 grid grid-cols-2 md:grid-cols-2 gap-y-4 md:gap-y-0 items-center justify-between">
+          {/* Streak Indicator */}
+          <div className="flex items-center justify-center md:justify-start">
+            <span className="text-xl font-bold text-[#EF4444] animate-pulse-once">🔥 {appData.streak}</span>
+            <span className="ml-2 text-lg text-[#E0E0E0]">Day Streak</span>
+          </div>
+
+          {/* Progress & Expand */}
+          <div className="flex items-center justify-center md:justify-end">
+            <span className="text-xl font-bold text-[#4CAF50] animate-pulse-once">✅ {currentWeekCompletionPercentage}% Done</span>
+          </div>
         </div>
 
-        <div className="flex justify-between items-center text-lg font-medium">
-          <button
-            onClick={() => navigateDays(-1)}
-            className="p-2 rounded-full bg-[#578FCA] text-white hover:bg-[#3674B5] transition-colors"
-            aria-label="Previous day"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <span>{appData.currentDayName}, {getMonthDay(getDayDate(appData.currentWeekId, appData.currentDayName))}</span>
-          <button
-            onClick={() => navigateDays(1)}
-            className="p-2 rounded-full bg-[#578FCA] text-white hover:bg-[#3674B5] transition-colors"
-            aria-label="Next day"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
+        {/* Gradient Line Separator */}
+        <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-[#5C7AEA] to-transparent my-2"></div>
+
+        {/* Navigation Section (Week & Day) - Redesigned for 3-column explicit structure */}
+        <div className="flex flex-col gap-2 p-2">
+          {/* Week Navigation - Explicit 3-column grid */}
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2"> {/* auto for button width, 1fr for flexible center */}
+            <div className="flex justify-start"> {/* Left column */}
+              <button
+                onClick={() => navigateWeeks(-1)}
+                className="p-2 rounded-full bg-[#4A5568] text-white hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform hover:scale-110 active:scale-90 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5C7AEA]"
+                aria-label="Previous week"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            {/* Center column for week info */}
+            <div className="flex justify-center text-center">
+              <span className="text-[#E0E0E0] text-xl font-bold">{currentWeekInfo.display} | {currentWeekInfo.year}</span>
+            </div>
+            <div className="flex justify-end"> {/* Right column */}
+              <button
+                onClick={() => navigateWeeks(1)}
+                className="p-2 rounded-full bg-[#4A5568] text-white hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform hover:scale-110 active:scale-90 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5C7AEA]"
+                aria-label="Next week"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Day Navigation - Explicit 3-column grid */}
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-2"> {/* auto for button width, 1fr for flexible center */}
+            <div className="flex justify-start"> {/* Left column */}
+              <button
+                onClick={() => navigateDays(-1)}
+                className="p-2 rounded-full bg-[#4A5568] text-white hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform hover:scale-110 active:scale-90 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5C7AEA]"
+                aria-label="Previous day"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            {/* Center column for day info */}
+            <div className="flex justify-center text-center">
+              <span className="text-xl font-bold text-[#E0E0E0] tracking-wide">
+                {appData.currentDayName}, {getMonthDay(getDayDate(appData.currentWeekId, appData.currentDayName))}
+              </span>
+            </div>
+            <div className="flex justify-end"> {/* Right column */}
+              <button
+                onClick={() => navigateDays(1)}
+                className="p-2 rounded-full bg-[#4A5568] text-white hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform hover:scale-110 active:scale-90 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5C7AEA]"
+                aria-label="Next day"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
+
       {/* Main Content - Day View */}
-      <main className="w-full max-w-xl bg-white rounded-xl shadow-lg p-4 flex-grow relative">
-        <h2 className="text-xl font-semibold mb-4 text-center">
-          {appData.currentDayName}'s Tasks
-          {isHistoricalView && (
-            <span className="ml-2 text-sm text-gray-500">(Historical View)</span>
-          )}
-        </h2>
+      <main className="w-full max-w-xl bg-[#282840] rounded-xl shadow-lg p-4 flex-grow relative">
+        {isHistoricalView && (
+          <p className="mb-4 text-center text-sm text-[#9E9E9E]">(Historical View)</p>
+        )}
         <DayView
           tasks={currentWeekData?.template[appData.currentDayName] || []}
           completedTaskIds={currentWeekData?.completions[appData.currentDayName] || []}
@@ -536,6 +577,7 @@ function App() {
           onEditTaskText={handleEditTaskText}
           onDeleteTask={handleDeleteTask}
           onReorderTasks={handleReorderTasks}
+          onExpandTask={openExpandTaskModal} // Pass the new handler
           isHistoricalView={isHistoricalView}
           categories={CATEGORIES}
           dayName={appData.currentDayName} // Pass dayName for drag/drop context
@@ -544,7 +586,7 @@ function App() {
         {!isHistoricalView && (
           <button
             onClick={() => openAddTaskModal(appData.currentDayName)}
-            className="mt-6 w-full py-3 bg-[#3674B5] text-white font-bold rounded-xl shadow-md hover:bg-[#2A5E95] transition-colors active:scale-95 transform"
+            className="mt-6 w-full py-3 bg-[#5C7AEA] text-white font-bold rounded-xl shadow-md hover:bg-[#4A6CD5] transition-all duration-200 ease-in-out transform hover:scale-102 active:scale-98 hover:shadow-lg"
             aria-label="Add new task"
           >
             Add Task
@@ -558,6 +600,17 @@ function App() {
           dayName={modalPayload?.dayName}
           onClose={closeModals}
           onAddTask={handleAddTask}
+          categories={CATEGORIES}
+        />
+      )}
+
+      {/* Expand Task Modal */}
+      {isModalOpen && modalType === 'expand-task' && (
+        <ExpandTaskModal
+          task={modalPayload?.task}
+          onClose={closeModals}
+          onAddSubtask={handleAddTask} // Reuse handleAddTask for adding subtasks
+          dayName={appData.currentDayName}
           categories={CATEGORIES}
         />
       )}
@@ -581,6 +634,7 @@ const DayView = ({
   onEditTaskText,
   onDeleteTask,
   onReorderTasks,
+  onExpandTask, // New prop
   isHistoricalView,
   categories,
   dayName,
@@ -595,7 +649,7 @@ const DayView = ({
     setDraggingItem(tasks[index]);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', index);
-    e.target.classList.add('opacity-50');
+    e.currentTarget.classList.add('opacity-50', 'translate-y-[-4px]', 'shadow-xl'); // Lift effect and shadow
   };
 
   const handleDragOver = (e) => {
@@ -615,19 +669,19 @@ const DayView = ({
     newTasks.splice(targetIndex, 0, movedTask);
 
     onReorderTasks(dayName, newTasks);
-    e.target.classList.remove('opacity-50');
+    e.currentTarget.classList.remove('opacity-50', 'translate-y-[-4px]', 'shadow-xl');
     setDraggingItem(null);
   };
 
   const handleDragEnd = (e) => {
-    e.target.classList.remove('opacity-50');
+    e.currentTarget.classList.remove('opacity-50', 'translate-y-[-4px]', 'shadow-xl');
     setDraggingItem(null);
   };
 
   return (
-    <ul className="space-y-3 p-2 bg-gray-50 rounded-lg min-h-[300px]">
+    <ul className="space-y-3 p-2 bg-[#1A1A2E] rounded-lg min-h-[300px]"> {/* Darker background for task list */}
       {tasks.length === 0 ? (
-        <p className="text-center text-gray-500 py-10">No tasks for today. Add some!</p>
+        <p className="text-center text-[#9E9E9E] py-10">No tasks for today. Add some!</p>
       ) : (
         tasks.map((task, index) => (
           <li
@@ -637,7 +691,7 @@ const DayView = ({
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, index)}
             onDragEnd={handleDragEnd}
-            className="rounded-lg shadow-sm bg-white p-3 flex items-center gap-3 border-l-4"
+            className="rounded-lg shadow-md bg-[#282840] p-3 flex items-center gap-3 border-l-4 transition-all duration-200 ease-in-out" // Darker task card background
             style={{ borderColor: categories[task.category]?.color || categories.others.color }}
           >
             <TaskItem
@@ -646,9 +700,10 @@ const DayView = ({
               onToggleCompletion={onToggleCompletion}
               onEditTaskText={onEditTaskText}
               onDeleteTask={onDeleteTask}
+              onExpandTask={onExpandTask} // Pass through
               isHistoricalView={isHistoricalView}
               categoryInfo={categories[task.category] || categories.others}
-              dayName={dayName} // Pass dayName down to TaskItem
+              dayName={dayName}
             />
           </li>
         ))
@@ -664,9 +719,10 @@ const TaskItem = ({
   onToggleCompletion,
   onEditTaskText,
   onDeleteTask,
+  onExpandTask, // New prop
   isHistoricalView,
   categoryInfo,
-  dayName, // Receive dayName here
+  dayName,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(task.text);
@@ -685,7 +741,7 @@ const TaskItem = ({
   const handleTextBlur = () => {
     setIsEditing(false);
     if (editText.trim() !== '' && editText !== task.text) {
-      onEditTaskText(dayName, task.id, editText); // Use the correct dayName prop
+      onEditTaskText(dayName, task.id, editText);
     } else {
       setEditText(task.text); // Revert if empty or no change
     }
@@ -705,59 +761,71 @@ const TaskItem = ({
     }
   }, [isEditing, editText]);
 
-  // Use the 4th rank color for meal background
-  const mealBgColor = task.category === 'meal' ? '#FFFBF0' : 'bg-white'; // Very light yellow for meal background
+  // Use a subtle translucent background for meal tasks
+  const mealBgStyle = task.category === 'meal' ? { backgroundColor: 'rgba(255, 255, 255, 0.08)' } : {};
 
   return (
     <>
       <button
-        onClick={() => !isHistoricalView && onToggleCompletion(dayName, task.id)} // Use the correct dayName prop
+        onClick={() => !isHistoricalView && onToggleCompletion(dayName, task.id)}
         className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border-2
-          ${isCompleted ? 'bg-green-500 border-green-500 text-white' : 'bg-white border-gray-300 text-transparent'}
-          ${isHistoricalView ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-green-100 transition-colors'}`}
+          ${isCompleted ? 'bg-[#4CAF50] border-[#4CAF50] text-white' : 'bg-[#282840] border-[#4A5568] text-transparent'}
+          ${isHistoricalView ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-green-600 transition-colors duration-200 ease-in-out transform active:scale-95'}`}
         aria-label={isCompleted ? "Mark as uncompleted" : "Mark as completed"}
         disabled={isHistoricalView}
       >
         {isCompleted && (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transition-all duration-300 ease-out" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
         )}
       </button>
 
-      <div className={`flex-1 flex items-center rounded-md p-2`} style={{ backgroundColor: mealBgColor }}>
-        <span className="mr-2 text-xl flex-shrink-0">{categoryInfo.emoji}</span>
-        {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={editText}
-            onChange={handleTextChange}
-            onBlur={handleTextBlur}
-            onKeyPress={handleKeyPress}
-            className="w-full p-1 border-b-2 border-indigo-400 focus:outline-none bg-transparent"
-          />
-        ) : (
-          <span
-            className={`flex-1 text-base ${isCompleted ? 'line-through text-gray-500' : ''} ${!isHistoricalView ? 'cursor-pointer' : ''}`}
-            onClick={handleTextClick}
-            aria-label="Edit task"
-          >
-            {task.text}
-          </span>
-        )}
+      <div className={`flex-1 flex flex-col sm:flex-row sm:items-center rounded-md p-2`} style={mealBgStyle}>
+        <div className="flex items-center mb-1 sm:mb-0">
+          <span className="mr-2 text-xl flex-shrink-0">{categoryInfo.emoji}</span>
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={editText}
+              onChange={handleTextChange}
+              onBlur={handleTextBlur}
+              onKeyPress={handleKeyPress}
+              className="w-full p-1 border-b-2 border-[#5C7AEA] focus:outline-none bg-transparent text-[#E0E0E0]"
+              style={{ color: '#E0E0E0' }} // Ensure text color is light
+            />
+          ) : (
+            <span
+              className={`flex-1 text-base ${isCompleted ? 'line-through text-[#9E9E9E] transition-all duration-300 ease-out' : 'text-[#E0E0E0]'} ${!isHistoricalView ? 'cursor-pointer' : ''}`}
+              onClick={handleTextClick}
+              aria-label="Edit task"
+            >
+              {task.text}
+            </span>
+          )}
+        </div>
       </div>
 
       {!isHistoricalView && (
-        <button
-          onClick={() => onDeleteTask(dayName, task.id)} // Use the correct dayName prop
-          className="flex-shrink-0 p-2 text-red-500 hover:bg-red-100 rounded-full transition-colors active:scale-95 transform"
-          aria-label="Delete task"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" clipRule="evenodd" />
+        <div className="flex-shrink-0 flex space-x-2 ml-auto"> {/* Buttons grouped and aligned right */}
+          <button
+            onClick={() => onExpandTask(task)}
+            className="p-2 text-[#5C7AEA] hover:bg-[#202030] rounded-full transition-colors duration-200 ease-in-out transform active:scale-95"
+            aria-label="Expand task"
+          >
+            ✨
+          </button>
+          <button
+            onClick={() => onDeleteTask(dayName, task.id)}
+            className="p-2 text-red-500 hover:bg-red-900 rounded-full transition-colors duration-200 ease-in-out transform active:scale-95"
+            aria-label="Delete task"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" clipRule="evenodd" />
           </svg>
-        </button>
+          </button>
+        </div>
       )}
     </>
   );
@@ -778,12 +846,12 @@ const AddTaskModal = ({ dayName, onClose, onAddTask, categories }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl p-6 shadow-xl w-full max-w-sm">
-        <h3 className="text-2xl font-bold mb-4 text-center">Add New Task for {dayName}</h3>
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 animate-fade-in"> {/* Darker overlay, fade-in animation */}
+      <div className="bg-[#282840] rounded-xl p-6 shadow-xl w-full max-w-sm animate-scale-in"> {/* Darker modal, scale-in animation */}
+        <h3 className="text-2xl font-bold mb-4 text-center text-[#E0E0E0]">Add New Task for {dayName}</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="task-text" className="block text-gray-700 text-sm font-medium mb-1">
+            <label htmlFor="task-text" className="block text-[#E0E0E0] text-sm font-medium mb-1">
               Task Description
             </label>
             <input
@@ -791,23 +859,23 @@ const AddTaskModal = ({ dayName, onClose, onAddTask, categories }) => {
               type="text"
               value={taskText}
               onChange={(e) => setTaskText(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3674B5] focus:border-transparent"
+              className="w-full p-3 border border-[#4A5568] rounded-lg focus:ring-2 focus:ring-[#5C7AEA] focus:border-transparent bg-[#1E1E2F] text-[#E0E0E0]"
               placeholder="e.g., Go to gym, Prepare dinner"
               required
             />
           </div>
           <div>
-            <label htmlFor="task-category" className="block text-gray-700 text-sm font-medium mb-1">
+            <label htmlFor="task-category" className="block text-[#E0E0E0] text-sm font-medium mb-1">
               Category
             </label>
             <select
               id="task-category"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-[#3674B5] focus:border-transparent"
+              className="w-full p-3 border border-[#4A5568] rounded-lg bg-[#1E1E2F] text-[#E0E0E0] focus:ring-2 focus:ring-[#5C7AEA] focus:border-transparent"
             >
               {Object.entries(categories).map(([key, value]) => (
-                <option key={key} value={key}>
+                <option key={key} value={key} style={{backgroundColor: '#282840', color: '#E0E0E0'}}> {/* Options style for dark theme */}
                   {value.emoji} {value.name}
                 </option>
               ))}
@@ -817,13 +885,13 @@ const AddTaskModal = ({ dayName, onClose, onAddTask, categories }) => {
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 rounded-xl bg-[#578FCA] text-white font-semibold hover:bg-[#3674B5] transition-colors active:scale-95 transform"
+              className="px-5 py-2 rounded-xl bg-[#4A5568] text-white font-semibold hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform active:scale-95 shadow-md hover:shadow-lg"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-[#3674B5] text-white font-bold hover:bg-[#2A5E95] transition-colors active:scale-95 transform"
+              className="px-5 py-2 rounded-xl bg-[#5C7AEA] text-white font-bold hover:bg-[#4A6CD5] transition-all duration-200 ease-in-out transform active:scale-95 shadow-md hover:shadow-lg"
             >
               Add Task
             </button>
@@ -834,16 +902,146 @@ const AddTaskModal = ({ dayName, onClose, onAddTask, categories }) => {
   );
 };
 
+// --- ExpandTaskModal Component (NEW) ---
+const ExpandTaskModal = ({ task, dayName, onClose, onAddSubtask, categories }) => {
+  const [expandedContent, setExpandedContent] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState('');
+
+  const generateTaskBreakdown = async () => {
+    setIsGenerating(true);
+    setError('');
+    setExpandedContent(''); // Clear previous content
+
+    const prompt = `Break down the following high-level task into 3-5 actionable, smaller sub-tasks. List them as a bulleted list. Each sub-task should be concise.\n\nTask: "${task.text}"`;
+
+    try {
+      let chatHistory = [];
+      chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+      const payload = { contents: chatHistory };
+      const apiKey = ""; // Canvas will provide
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        const text = result.candidates[0].content.parts[0].text;
+        setExpandedContent(text.trim());
+      } else {
+        setError('No content generated or unexpected response structure.');
+      }
+    } catch (err) {
+      console.error('Error generating task breakdown:', err);
+      setError(`Failed to generate breakdown: ${err.message}. Please try again.`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleAddSubtasks = () => {
+    if (!expandedContent) {
+      setError("No subtasks to add. Please generate a breakdown first.");
+      return;
+    }
+
+    // Parse the bulleted list into individual tasks
+    const subtasks = expandedContent.split('\n')
+                                   .map(line => line.replace(/^[*-]\s*/, '').trim()) // Remove bullet points
+                                   .filter(line => line.length > 0); // Filter out empty lines
+
+    if (subtasks.length === 0) {
+      setError("No valid subtasks found in the generated content.");
+      return;
+    }
+
+    subtasks.forEach(subtaskText => {
+      onAddSubtask(dayName, subtaskText, task.category); // Add each subtask with parent's category
+    });
+    onClose(); // Close modal after adding
+  };
+
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-[#282840] rounded-xl p-6 shadow-xl w-full max-w-lg animate-scale-in">
+        <h3 className="text-2xl font-bold mb-4 text-center text-[#E0E0E0]">Expand Task</h3>
+        <p className="text-base text-[#B0B0B0] mb-4">
+          Original Task: <span className="font-semibold text-[#E0E0E0]">"{task.text}"</span>
+        </p>
+
+        {error && <p className="text-red-400 text-center mb-3">{error}</p>}
+
+        <div className="mb-4">
+          <button
+            onClick={generateTaskBreakdown}
+            disabled={isGenerating}
+            className="w-full py-3 bg-[#5C7AEA] text-white font-bold rounded-xl shadow-md hover:bg-[#4A6CD5] transition-all duration-200 ease-in-out transform hover:scale-102 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGenerating ? (
+              <span className="flex items-center justify-center">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Generating...
+              </span>
+            ) : (
+              '✨ Generate Breakdown'
+            )}
+          </button>
+        </div>
+
+        {expandedContent && (
+          <div className="bg-[#1A1A2E] p-4 rounded-lg border border-[#4A5568] mb-4 overflow-auto max-h-48 text-[#E0E0E0]">
+            <h4 className="font-semibold mb-2 text-lg">Suggested Sub-tasks:</h4>
+            <pre className="whitespace-pre-wrap text-sm">{expandedContent}</pre>
+          </div>
+        )}
+
+        <div className="flex justify-end space-x-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl bg-[#4A5568] text-white font-semibold hover:bg-[#3C4454] transition-all duration-200 ease-in-out transform active:scale-95 shadow-md hover:shadow-lg"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleAddSubtasks}
+            disabled={!expandedContent || isGenerating}
+            className="px-5 py-2 rounded-xl bg-[#5C7AEA] text-white font-bold hover:bg-[#4A6CD5] transition-all duration-200 ease-in-out transform active:scale-95 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add as Subtasks
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 // --- MessageModal Component (for alert/confirm replacements) ---
 const MessageModal = ({ message, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl p-6 shadow-xl w-full max-w-sm text-center">
-        <h3 className="text-xl font-bold mb-4">Notification</h3>
-        <p className="mb-6 text-gray-700">{message}</p>
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 animate-fade-in"> {/* Darker overlay, fade-in animation */}
+      <div className="bg-[#282840] rounded-xl p-6 shadow-xl w-full max-w-sm animate-scale-in"> {/* Darker modal, scale-in animation */}
+        <h3 className="text-xl font-bold mb-4 text-[#E0E0E0]">Notification</h3>
+        <p className="mb-6 text-[#E0E0E0]">{message}</p>
         <button
           onClick={onClose}
-          className="px-6 py-2 rounded-xl bg-[#3674B5] text-white font-bold hover:bg-[#2A5E95] transition-colors active:scale-95 transform"
+          className="px-6 py-2 rounded-xl bg-[#5C7AEA] text-white font-bold hover:bg-[#4A6CD5] transition-all duration-200 ease-in-out transform active:scale-95 shadow-md hover:shadow-lg"
         >
           OK
         </button>
